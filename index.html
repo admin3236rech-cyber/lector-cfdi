@@ -141,6 +141,7 @@ const API_URL = "https://script.google.com/macros/s/AKfycbz_ZajeNP_71FmcS-bYcYnh
 let scanner = null;
 let resultados = [];
 let uuidsEscaneados = new Set();
+let procesandoQR = false;
 
 function extraerUUID(textoQR) {
   const texto = String(textoQR).trim();
@@ -191,17 +192,27 @@ function detenerScanner() {
 }
 
 async function procesarQR(textoQR) {
+  if (procesandoQR) return;
+
+  procesandoQR = true;
+
   const uuid = extraerUUID(textoQR);
 
   if (!uuid) {
     document.getElementById("mensaje").innerHTML =
       "<span class='error'>QR no reconocido. No se encontró UUID.</span>";
+    procesandoQR = false;
     return;
   }
 
   if (uuidsEscaneados.has(uuid)) {
     document.getElementById("mensaje").innerHTML =
       "<span class='error'>UUID duplicado en esta sesión.</span>";
+
+    setTimeout(() => {
+      procesandoQR = false;
+    }, 1500);
+
     return;
   }
 
@@ -214,6 +225,11 @@ async function procesarQR(textoQR) {
     if (!data.encontrado) {
       document.getElementById("ultimoResultado").innerHTML =
         "<span class='error'>No encontrado:</span><br>" + uuid;
+
+      setTimeout(() => {
+        procesandoQR = false;
+      }, 1500);
+
       return;
     }
 
@@ -227,9 +243,17 @@ async function procesarQR(textoQR) {
     document.getElementById("mensaje").innerHTML =
       "<span class='ok'>Encontrado y agregado.</span>";
 
+    setTimeout(() => {
+      procesandoQR = false;
+    }, 2000);
+
   } catch (err) {
     document.getElementById("mensaje").innerHTML =
       "<span class='error'>Error consultando API: " + err + "</span>";
+
+    setTimeout(() => {
+      procesandoQR = false;
+    }, 1500);
   }
 }
 
