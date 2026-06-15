@@ -1,1 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lector QR CFDI</title>
 
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+      margin: 0;
+      padding: 15px;
+    }
+
+    .card {
+      max-width: 650px;
+      margin: auto;
+      background: white;
+      padding: 18px;
+      border-radius: 14px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+      margin-bottom: 15px;
+    }
+
+    h2, h3 {
+      text-align: center;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      background: #111827;
+      color: white;
+      font-size: 16px;
+      margin-top: 8px;
+      cursor: pointer;
+    }
+
+    button.secundario {
+      background: #374151;
+    }
+
+    button.rojo {
+      background: #b91c1c;
+    }
+
+    #reader {
+      width: 100%;
+      margin-top: 15px;
+    }
+
+    .resultado {
+      background: #f9fafb;
+      padding: 12px;
+      border-radius: 10px;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 6px;
+      text-align: left;
+    }
+
+    th {
+      background: #111827;
+      color: white;
+    }
+
+    .ok {
+      color: green;
+      font-weight: bold;
+    }
+
+    .error {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="card">
+    <h2>Lector QR CFDI</h2>
+
+    <button onclick="iniciarScanner()">Iniciar escáner</button>
+    <button class="rojo" onclick="detenerScanner()">Detener escáner</button>
+
+    <div id="reader"></div>
+
+    <div id="mensaje" class="resultado">
+      Listo para escanear.
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Último resultado</h3>
+    <div id="ultimoResultado" class="resultado">
+      Sin lectura todavía.
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Escaneados</h3>
+    <p id="contador">Total: 0</p>
+
+    <button class="secundario" onclick="descargarCSV()">Descargar CSV</button>
+    <button class="rojo" onclick="limpiarTabla()">Limpiar tabla</button>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Factura</th>
+          <th>Proveedor</th>
+          <th>RFC</th>
+          <th>Total</th>
+          <th>Fecha</th>
+        </tr>
+      </thead>
+      <tbody id="tablaResultados"></tbody>
+    </table>
+  </div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbz_ZajeNP_71FmcS-bYcYnhXhC2SwQ6-z2jAD1SCSq0O8XmBMIa0hr6LAZfiD2SMvtq/exec";
+
+let scanner = null;
+let resultados = [];
+let uuidsEscaneados = new Set();
+
+function extraerUUID(textoQR) {
+  const texto = String(textoQR).trim();
+
+  const matchId = texto.match(/[?&]id=([^&]+)/i);
+  if (matchId) {
+    return decodeURIComponent(matchId[1]).toUpperCase();
+  }
+
+  const matchUUID = texto.match(/[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/i);
+  if (matchUUID) {
+    return matchUUID[0].toUpperCase();
+  }
+
+  return "";
+}
+
+function iniciarScanner() {
+  document.getElementById("mensaje").innerHTML = "Iniciando cámara...";
+
+  scanner = new Html5Qrcode("reader");
+
+  scanner.start(
+    { facingMode: "environment" },
+    {
+      fps: 10,
+      qrbox: { width: 250, height: 250 }
+    },
+    textoQR => {
+      procesarQR(textoQR);
+    },
+    error => {}
+  ).catch(err => {
+    document.getElementById("mensaje").innerHTML =
+      "<span class='error'>Error al iniciar cámara: " + err + "</span>";
+  });
+}
+
+function detenerScanner() {
+  if (scanner) {
+    scanner.stop()
+      .then(() => {
+        scanner.clear();
+        document.getElementById("mensaje").innerHTML = "Escáner detenido.";
+      })
+      .catch(err => console.log(err));
+  }
+}
+
+async function procesarQR(textoQR) {
+  const uuid = extraerUUID(textoQR);
+
+  if (!uuid) {
+    document.getElementById("mensaje").innerHTML =
+      "<span class='error'>QR no reconocido. No se encontró UUID.</span>";
+    return;
+  }
+
+  if (uuidsEscaneados.has(uuid)) {
+    document.getElementById("mensaje").innerHTML =
+      "<span class='error'>UUID duplicado en esta sesión.</span>";
+    return;
+  }
+
+  document.getElementById("mensaje").innerHTML = "Buscando UUID: " + uuid;
+
+  try {
+    const respuesta = await fetch(API_URL + "?uuid=" + encodeURIComponent(uuid));
+    const data = await respuesta.json();
+
+    if (!data.encontrado) {
+      document.getElementById("ultimoResultado").innerHTML =
+        "<span class='error'>No encontrado:</span><br>" + uuid;
+      return;
+    }
+
+    uuidsEscaneados.add(uuid);
+    resultados.push(data);
+
+    mostrarUltimo(data);
+    agregarFila(data);
+    actualizarContador();
+
+    document.getElementById("mensaje").innerHTML =
+      "<span class='ok'>Encontrado y agregado.</span>";
+
+  } catch (err) {
+    document.getElementById("mensaje").innerHTML =
+      "<span class='error'>Error consultando API: " + err + "</span>";
+  }
+}
+
+function mostrarUltimo(data) {
+  document.getElementById("ultimoResultado").innerHTML = `
+    <b>Factura:</b> ${data.factura || ""}<br>
+    <b>Proveedor:</b> ${data.nombreEmisor || ""}<br>
+    <b>RFC:</b> ${data.rfcEmisor || ""}<br>
+    <b>Total:</b> $${data.total || ""}<br>
+    <b>Fecha:</b> ${data.fecha || ""}
+  `;
+}
+
+function agregarFila(data) {
+  const tbody = document.getElementById("tablaResultados");
+
+  const tr = document.createElement("tr");
+
+  tr.innerHTML = `
+    <td>${data.factura || ""}</td>
+    <td>${data.nombreEmisor || ""}</td>
+    <td>${data.rfcEmisor || ""}</td>
+    <td>${data.total || ""}</td>
+    <td>${data.fecha || ""}</td>
+  `;
+
+  tbody.appendChild(tr);
+}
+
+function actualizarContador() {
+  document.getElementById("contador").innerText =
+    "Total: " + resultados.length;
+}
+
+function limpiarTabla() {
+  resultados = [];
+  uuidsEscaneados.clear();
+  document.getElementById("tablaResultados").innerHTML = "";
+  document.getElementById("ultimoResultado").innerHTML = "Sin lectura todavía.";
+  actualizarContador();
+}
+
+function descargarCSV() {
+  if (resultados.length === 0) {
+    alert("No hay datos para descargar.");
+    return;
+  }
+
+  const encabezados = [
+    "UUID",
+    "Fecha",
+    "Serie",
+    "Folio",
+    "Factura",
+    "RFC Emisor",
+    "Nombre Emisor",
+    "RFC Receptor",
+    "Total",
+    "Metodo Pago",
+    "Forma Pago"
+  ];
+
+  const filas = resultados.map(r => [
+    r.uuid,
+    r.fecha,
+    r.serie,
+    r.folio,
+    r.factura,
+    r.rfcEmisor,
+    r.nombreEmisor,
+    r.rfcReceptor,
+    r.total,
+    r.metodoPago,
+    r.formaPago
+  ]);
+
+  let csv = encabezados.join(",") + "\n";
+
+  filas.forEach(fila => {
+    csv += fila.map(valor => {
+      valor = valor === null || valor === undefined ? "" : String(valor);
+      valor = valor.replace(/"/g, '""');
+      return `"${valor}"`;
+    }).join(",") + "\n";
+  });
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "lecturas_qr_cfdi.csv";
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
