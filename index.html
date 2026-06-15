@@ -205,11 +205,13 @@ function consultarAPI(uuid) {
       + "?uuid=" + encodeURIComponent(uuid)
       + "&callback=" + callbackName;
 
-    script.onerror = function() {
-      reject("No se pudo cargar la API");
-      delete window[callbackName];
-      script.remove();
-    };
+   script.onerror = function(e) {
+  reject("No se pudo cargar la API. Revisa permisos/publicación.");
+  console.log("ERROR SCRIPT API:", e);
+  console.log("URL API:", script.src);
+  delete window[callbackName];
+  script.remove();
+};
 
     document.body.appendChild(script);
   });
@@ -271,13 +273,15 @@ async function procesarQR(textoQR) {
     }, 2000);
 
   } catch (err) {
-    document.getElementById("mensaje").innerHTML =
-      "<span class='error'>Error consultando API: " + err + "</span>";
+  console.error("ERROR COMPLETO:", err);
 
-    setTimeout(() => {
-      procesandoQR = false;
-    }, 1500);
-  }
+  document.getElementById("mensaje").innerHTML =
+    "<span class='error'>Error consultando API:</span><br>" + err;
+
+  setTimeout(() => {
+    procesandoQR = false;
+  }, 1500);
+}
 }
 
 function mostrarUltimo(data) {
