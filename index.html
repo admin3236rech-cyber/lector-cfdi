@@ -190,7 +190,30 @@ function detenerScanner() {
       .catch(err => console.log(err));
   }
 }
+function consultarAPI(uuid) {
+  return new Promise((resolve, reject) => {
+    const callbackName = "callback_" + Date.now();
 
+    window[callbackName] = function(data) {
+      resolve(data);
+      delete window[callbackName];
+      script.remove();
+    };
+
+    const script = document.createElement("script");
+    script.src = API_URL
+      + "?uuid=" + encodeURIComponent(uuid)
+      + "&callback=" + callbackName;
+
+    script.onerror = function() {
+      reject("No se pudo cargar la API");
+      delete window[callbackName];
+      script.remove();
+    };
+
+    document.body.appendChild(script);
+  });
+}
 async function procesarQR(textoQR) {
   if (procesandoQR) return;
 
@@ -219,8 +242,8 @@ async function procesarQR(textoQR) {
   document.getElementById("mensaje").innerHTML = "Buscando UUID: " + uuid;
 
   try {
-    const respuesta = await fetch(API_URL + "?uuid=" + encodeURIComponent(uuid));
-    const data = await respuesta.json();
+    
+    const data = await consultarAPI(uuid);
 
     if (!data.encontrado) {
       document.getElementById("ultimoResultado").innerHTML =
